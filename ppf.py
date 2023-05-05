@@ -326,7 +326,7 @@ def compute_ppf(
     ref_fraction=1.0,
     ref_abs=None,
     max_dist=np.inf,
-    alphas=False,
+    alphas=True,
 ):
     table = defaultdict(list)
     ref2feature = defaultdict(dict)
