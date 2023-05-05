@@ -82,46 +82,49 @@ def main():
 
     # read source(model) and traget(scene) pointcloud
     src_model = o3d.io.read_point_cloud(args.model)
-    if src_model.points:
+    if not src_model.points:
         src_model = o3d.io.read_triangle_mesh(args.model)
-        src_model.remove_degenerate_triangles()
-        src_model.remove_duplicated_triangles()
-        src_model.remove_duplicated_vertices()
-        src_model.remove_non_manifold_edges()
-        src_model.compute_triangle_normals(normalized=True)
+        # src_model.remove_degenerate_triangles()
+        # src_model.remove_duplicated_triangles()
+        # src_model.remove_duplicated_vertices()
+        # src_model.remove_non_manifold_edges()
+        # src_model.compute_triangle_normals(normalized=True)
         model_icp = src_model.sample_points_uniformly(number_of_points=100000)
         # model = src_model.sample_points_poisson_disk(number_of_points=100)
     else:
-        model_icp = src_model.farthest_point_down_sample(voxel_size=50000)
+        model_icp = src_model.farthest_point_down_sample(num_samples=50000)
         # model = src_model.voxel_down_sample(voxel_size=30)
     src_scene = o3d.io.read_point_cloud(args.scene)
-    if src_scene.points:
+    if not src_scene.points:
         src_scene = o3d.io.read_triangle_mesh(args.scene)
         src_scene.remove_degenerate_triangles()
         src_scene.remove_duplicated_triangles()
         src_scene.remove_duplicated_vertices()
         src_scene.remove_non_manifold_edges()
-        src_model.compute_triangle_normals(normalized=True)
+        # src_scene.compute_triangle_normals(normalized=True)
         scene_icp = src_scene.sample_points_uniformly(number_of_points=100000)
         # scene = src_scene.sample_points_poisson_disk(number_of_points=100)
     else:
-        scene_icp = src_scene.uniform_down_sample(voxel_size=50000)
+        scene_icp = src_scene.farthest_point_down_sample(num_samples=50000)
         # scene = src_scene.voxel_down_sample(voxel_size=30)
 
     # process normals of pointclouds:
     # if model.normals:
-    # model_icp.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=20, max_nn=20))
-    # model_icp.normalize_normals()
-    model = model_icp.farthest_point_down_sample(num_samples=200)
+    model_icp.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=20, max_nn=20))
+    model_icp.normalize_normals()
+    model = model_icp.farthest_point_down_sample(num_samples=100)
     # if scene.normals:
     scene_icp.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=20, max_nn=20))
     """
+    for index in range(len(scene_icp.normals)):
+        scene_icp.normals[index] = -1 * scene_icp.normals[index]
+    
     for index in range(len(scene_icp.points)):
         if (scene_icp.points[index].dot(scene_icp.normals[index])) > 0:
             scene_icp.normals[index] = -1 * scene_icp.normals[index]
     """
     scene_icp.normalize_normals()
-    scene = scene_icp.farthest_point_down_sample(num_samples=200)
+    scene = scene_icp.farthest_point_down_sample(num_samples=100)
 
     # visualize source(model) and traget(scene) pointcloud
     _model_vis = copy.deepcopy(src_model)
@@ -253,11 +256,18 @@ def main():
     for T_model2scene, m_r, score in poses_sort:
         print("Score", score)
         print(np.around(T_model2scene, decimals=2))
-        distance_threshold = 0.05
+        distance_threshold = 5
         
         # 使用G-ICP算法进行点云配准
+
+        evaluation = o3d.pipelines.registration.evaluate_registration(model_icp,
+                                                                      scene_icp,
+                                                                      distance_threshold,
+                                                                      T_model2scene
+                                                                      )
+        print(evaluation)
         icp_criteria = o3d.pipelines.registration.ICPConvergenceCriteria(
-                                                                            relative_fitness=1e-4, relative_rmse=1e-2, max_iteration=2000
+                                                                            relative_fitness=1e-4, relative_rmse=1e-2, max_iteration=100
                                                                         )
         g_icp = o3d.pipelines.registration.registration_icp(
                                                             model_icp,
