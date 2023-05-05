@@ -22,6 +22,11 @@ from scipy.spatial import KDTree
 from scipy.spatial.distance import pdist
 from scipy.cluster.hierarchy import linkage, fcluster
 
+import open3d as o3d
+import copy
+
+from imgviz import hsv2rgb, rgb2hsv
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -75,76 +80,86 @@ def main():
         _pdist_rot = pdist_rot
         print("Using slow python mode")
 
-    model = trimesh.load(args.model)
-    scene = trimesh.load(args.scene)
-
-    if hasattr(model, "vertex_normals") and hasattr(scene, "vertex_normals"):
-        _model_vis = model.copy()
-        _scene_vis = scene.copy()
+    # read source(model) and traget(scene) pointcloud
+    src_model = o3d.io.read_point_cloud(args.model)
+    if src_model.points:
+        src_model = o3d.io.read_triangle_mesh(args.model)
+        src_model.remove_degenerate_triangles()
+        src_model.remove_duplicated_triangles()
+        src_model.remove_duplicated_vertices()
+        src_model.remove_non_manifold_edges()
+        src_model.compute_triangle_normals(normalized=True)
+        model_icp = src_model.sample_points_uniformly(number_of_points=100000)
+        # model = src_model.sample_points_poisson_disk(number_of_points=100)
     else:
-        try:
-            print(
-                "Your trimesh version still can't load pointclouds with normals. Trying open3d..."
-            )
-            import open3d as o3d
+        model_icp = src_model.farthest_point_down_sample(voxel_size=50000)
+        # model = src_model.voxel_down_sample(voxel_size=30)
+    src_scene = o3d.io.read_point_cloud(args.scene)
+    if src_scene.points:
+        src_scene = o3d.io.read_triangle_mesh(args.scene)
+        src_scene.remove_degenerate_triangles()
+        src_scene.remove_duplicated_triangles()
+        src_scene.remove_duplicated_vertices()
+        src_scene.remove_non_manifold_edges()
+        src_model.compute_triangle_normals(normalized=True)
+        scene_icp = src_scene.sample_points_uniformly(number_of_points=100000)
+        # scene = src_scene.sample_points_poisson_disk(number_of_points=100)
+    else:
+        scene_icp = src_scene.uniform_down_sample(voxel_size=50000)
+        # scene = src_scene.voxel_down_sample(voxel_size=30)
 
-            model = o3d.io.read_point_cloud(args.model)
-            scene = o3d.io.read_point_cloud(args.scene)
+    # process normals of pointclouds:
+    # if model.normals:
+    # model_icp.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=20, max_nn=20))
+    # model_icp.normalize_normals()
+    model = model_icp.farthest_point_down_sample(num_samples=200)
+    # if scene.normals:
+    scene_icp.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=20, max_nn=20))
+    """
+    for index in range(len(scene_icp.points)):
+        if (scene_icp.points[index].dot(scene_icp.normals[index])) > 0:
+            scene_icp.normals[index] = -1 * scene_icp.normals[index]
+    """
+    scene_icp.normalize_normals()
+    scene = scene_icp.farthest_point_down_sample(num_samples=200)
 
-            model = trimesh.Trimesh(
-                np.asarray(model.points), vertex_normals=np.asarray(model.normals)
-            )
-            scene = trimesh.Trimesh(
-                np.asarray(scene.points), vertex_normals=np.asarray(scene.normals)
-            )
-
-            _model_vis = trimesh.PointCloud(vertices=model.vertices)
-            _scene_vis = trimesh.PointCloud(vertices=scene.vertices)
-        except ImportError as e:
-            print("Fallback to open3d failed", e)
-            quit()
-
-    print("Model has", len(model.vertices), "vertices. scale=", model.scale)
-    print("Scene has", len(scene.vertices), "vertices. scale=", scene.scale)
-
-    # trimesh doesn't support .scale for point clouds
-    modelscale = np.linalg.norm(np.max(model.vertices, axis=0) - np.min(model.vertices, axis=0))
-    print("modelscale", modelscale)
-
-    _model_vis.visual.vertex_colors = [[255, 0, 0, 255] for _ in _model_vis.vertices]
-    _scene_vis.visual.vertex_colors = [
-        [150, 200, 150, 240] for _ in _scene_vis.vertices
-    ]
-
-    plt.figure()
-    plt.show()
-
-    vis = trimesh.Scene([_model_vis, _scene_vis])
-    vis.show()
+    # visualize source(model) and traget(scene) pointcloud
+    _model_vis = copy.deepcopy(src_model)
+    _scene_vis = copy.deepcopy(src_scene)
+    _model_vis.paint_uniform_color([1, 0.5, 0])
+    _scene_vis.paint_uniform_color([0.5, 1, 0])
+    o3d.visualization.draw_geometries([model_icp, scene_icp], point_show_normal=True, width=1280, height=760, window_name="source(model) and traget(scene) pointcloud")
+    
+    # scale = bboxing diag_length
+    # https://trimsh.org/trimesh.html#trimesh.Scene.scale
+    model_bbox = src_model.get_axis_aligned_bounding_box()
+    model_scale = np.linalg.norm(model_bbox.get_max_bound() - model_bbox.get_min_bound())
+    scene_bbox = src_scene.get_axis_aligned_bounding_box()
+    scene_scale = np.linalg.norm(scene_bbox.get_max_bound() - scene_bbox.get_min_bound())
 
     ## 1. compute ppfs of all vertex pairs in model, store in hash table
     angle_step = float(np.radians(360 / args.ppf_num_angles))
-    dist_step = args.ppf_rel_dist_step * modelscale
+    dist_step = args.ppf_rel_dist_step * model_scale
 
     print("Computing model ppfs features")
     t_start = time.perf_counter()
     ppfs_model, _, model_alphas = _compute_ppf(
-        to_nanobind(model.vertices),
-        to_nanobind(model.vertex_normals),
+        to_nanobind(model.points),
+        to_nanobind(model.normals),
         angle_step,
         dist_step,
     )
     t_end = time.perf_counter()
-    print(f"Computing ppfs for {len(model.vertices)} verts took {t_end - t_start:.2f}s")
+    print(f"Computing ppfs for {len(model.points)} points took {t_end - t_start:.2f}s")
 
-    ## 2. choose reference points in scene, compute their ppfs
+    # 2. choose reference points in scene, compute their ppfs
     t_start = time.perf_counter()
     _, pairs_scene, scene_alphas = _compute_ppf(
-        to_nanobind(scene.vertices),
-        to_nanobind(scene.vertex_normals),
+        to_nanobind(scene.points),
+        to_nanobind(scene.normals),
         angle_step,
         dist_step,
-        max_dist=modelscale,
+        max_dist=float(model_scale),
         ref_fraction=args.scene_pts_fraction,
     )
     t_end = time.perf_counter()
@@ -158,7 +173,7 @@ def main():
 
     poses = []
     # accumulator we're going to reuse for each reference vert
-    accumulator = np.zeros((len(model.vertices), args.alpha_num_angles))
+    accumulator = np.zeros((len(model.points), args.alpha_num_angles))
 
     print("Num reference verts", len(pairs_scene))
     for idx_ref, sA in enumerate(pairs_scene):
@@ -195,8 +210,8 @@ def main():
         peak_cutoff = np.max(accumulator) * 0.9
         idxs_peaks = np.argwhere(accumulator > peak_cutoff)
 
-        s_r = scene.vertices[sA]
-        s_normal = scene.vertex_normals[sA]
+        s_r = scene.points[sA]
+        s_normal = scene.normals[sA]
 
         R_scene2glob = np.eye(4)
         R_scene2glob[:3, :3] = align_vectors(s_normal, [1, 0, 0])
@@ -205,10 +220,10 @@ def main():
         for best_mr, best_alpha in idxs_peaks:
             R_model2glob = np.eye(4)
             R_model2glob[:3, :3] = align_vectors(
-                model.vertex_normals[best_mr], [1, 0, 0]
+                model.normals[best_mr], [1, 0, 0]
             )
             T_model2glob = R_model2glob @ tf.translation_matrix(
-                -model.vertices[best_mr]
+                -model.points[best_mr]
             )
 
             R_alpha = tf.rotation_matrix(alpha_step * best_alpha, [1, 0, 0], [0, 0, 0])
@@ -222,7 +237,7 @@ def main():
     t_cluster_start = time.perf_counter()
     pose_clusters = cluster_poses(
         poses,
-        dist_max=modelscale * 0.5,
+        dist_max=float(model_scale),
         rot_max_deg=args.cluster_max_angle,
         pdist_rot=_pdist_rot,
     )
@@ -230,22 +245,68 @@ def main():
     t_cluster_end = time.perf_counter()
     print(f"Clustering took {t_cluster_end - t_cluster_start:.1f}s")
 
-    ## Visualize result
-    scene_refs = trimesh.PointCloud(
-        [scene.vertices[idx] for idx in list(pairs_scene.keys())]
+    poses_sort = sorted(
+        poses, key=lambda x: x[2], reverse=True
     )
-    vis = trimesh.Scene([_scene_vis, scene_refs])
-    for T_model2scene, m_r, score in poses:
-        model_vis = _model_vis.copy()
-        color = (*np.random.randint(0, 255, size=3), 255)
-        model_vis.visual.vertex_colors = [color for _ in model_vis.vertices]
-        model_vis.apply_transform(T_model2scene)
-        vis.add_geometry(model_vis)
 
+    icp_results = []
+    for T_model2scene, m_r, score in poses_sort:
         print("Score", score)
         print(np.around(T_model2scene, decimals=2))
-        print()
-    vis.show()
+        distance_threshold = 0.05
+        
+        # 使用G-ICP算法进行点云配准
+        icp_criteria = o3d.pipelines.registration.ICPConvergenceCriteria(
+                                                                            relative_fitness=1e-4, relative_rmse=1e-2, max_iteration=2000
+                                                                        )
+        g_icp = o3d.pipelines.registration.registration_icp(
+                                                            model_icp,
+                                                            scene_icp,
+                                                            distance_threshold,
+                                                            T_model2scene,
+                                                            o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+                                                            criteria=icp_criteria
+                                                            )
+        
+        icp_results.append((g_icp.transformation, g_icp.fitness, g_icp.inlier_rmse))
+    icp_results_sort = sorted(
+                                icp_results, key=lambda x: x[2], reverse=False
+                            )
+
+
+    # Visualize result
+    colormap = label_colormap()
+    vis_list = []
+    scene_refs = o3d.geometry.PointCloud()
+    scene_refs.points = o3d.utility.Vector3dVector([scene.points[idx] for idx in list(pairs_scene.keys())])
+    scene_refs.paint_uniform_color([0, 0, 0])
+    vis_list.append(scene_refs)
+    index = 0
+    for T_model2scene, m_r, score in poses_sort:
+        index = index + 1
+        _model_vis_tmp = copy.deepcopy(_model_vis)
+        _model_vis_tmp.transform(T_model2scene)
+        _model_vis_tmp.paint_uniform_color(colormap[index]/128)
+        vis_list.append(_model_vis_tmp)
+    vis_list.append(_scene_vis)
+    o3d.visualization.draw_geometries(vis_list, width=1280, height=760, window_name="results of ppf")
+
+    # Visualize icp functions
+    colormap = label_colormap()
+    vis_list = []
+    scene_refs = o3d.geometry.PointCloud()
+    scene_refs.points = o3d.utility.Vector3dVector([scene.points[idx] for idx in list(pairs_scene.keys())])
+    scene_refs.paint_uniform_color([0, 0, 0])
+    vis_list.append(scene_refs)
+    index = 0
+    for T_model2scene, m_r, score in icp_results_sort:
+        index = index + 1
+        _model_vis_tmp = copy.deepcopy(model_icp)
+        _model_vis_tmp.transform(T_model2scene)
+        _model_vis_tmp.paint_uniform_color(colormap[index]/128)
+        vis_list.append(_model_vis_tmp)
+    vis_list.append(scene_icp)
+    o3d.visualization.draw_geometries(vis_list, width=1280, height=760, window_name="results of icp")
 
 
 def to_nanobind(arr):
@@ -345,6 +406,8 @@ def compute_ppf(
 
     num = 0
     for ivertA in idxsA:
+        if ivertA == 24:
+            a = 0
         vertA = vertices[ivertA]
 
         for ivertB in vert_tree.query_ball_point(vertA, max_dist):
@@ -528,33 +591,49 @@ def average_rotations(rotations):
     return tf.quaternion_matrix(quat_avg)
 
 
-# trimesh todo
-# - point cloud normals
-# - scipy not in dependencies
+def label_colormap(n_label=256, value=None):
+    """Label colormap.
 
-# Validation
+    Parameters
+    ----------
+    n_labels: int
+        Number of labels (default: 256).
+    value: float or int
+        Value scale or value of label color in HSV space.
 
-vertA = np.array([0, 0, 0])
-vertB = np.array([1, 0, 0])
-normA = np.array([0, 1, 0])
-normB = np.array([0, 1, 0])
-F1, F2, F3, F4 = compute_feature(vertA, vertB, normA, normB)
-assert np.isclose(F1, 1)
-assert np.isclose(F2, F3)
-assert np.isclose(F2, np.radians(90)), f"F2={np.degrees(F2)}"
-assert np.isclose(F4, 0)
+    Returns
+    -------
+    cmap: numpy.ndarray, (N, 3), numpy.uint8
+        Label id to colormap.
 
-vertA = np.array([0, 0, 0])
-vertB = np.array([1, 0, 0])
-normA = np.array([1, 1, 0])
-normA = normA / 2 * 1.414
-normB = np.array([-1, 1, 0])
-normB = normB / 2 * 1.414
-F1, F2, F3, F4 = compute_feature(vertA, vertB, normA, normB)
-assert np.isclose(F1, 1)
-assert np.isclose(F2, F3)
-assert np.isclose(F2, np.radians(45), rtol=1e-3), f"F2={np.degrees(F2)}"
-assert np.isclose(F4, np.radians(90), rtol=1e-3)
+    """
+
+    def bitget(byteval, idx):
+        return (byteval & (1 << idx)) != 0
+
+    cmap = np.zeros((n_label, 3), dtype=np.uint8)
+    for i in range(0, n_label):
+        id = i
+        r, g, b = 0, 0, 0
+        for j in range(0, 8):
+            r = np.bitwise_or(r, (bitget(id, 0) << 7 - j))
+            g = np.bitwise_or(g, (bitget(id, 1) << 7 - j))
+            b = np.bitwise_or(b, (bitget(id, 2) << 7 - j))
+            id = id >> 3
+        cmap[i, 0] = r
+        cmap[i, 1] = g
+        cmap[i, 2] = b
+
+    if value is not None:
+        hsv = rgb2hsv(cmap.reshape(1, -1, 3))
+        if isinstance(value, float):
+            hsv[:, 1:, 2] = hsv[:, 1:, 2].astype(float) * value
+        else:
+            assert isinstance(value, int)
+            hsv[:, 1:, 2] = value
+        cmap = hsv2rgb(hsv).reshape(-1, 3)
+    return cmap
+
 
 if __name__ == "__main__":
     main()
