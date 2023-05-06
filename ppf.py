@@ -115,10 +115,10 @@ def main():
     model = model_icp.farthest_point_down_sample(num_samples=100)
     # if scene.normals:
     scene_icp.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=20, max_nn=20))
-    """
+
     for index in range(len(scene_icp.normals)):
         scene_icp.normals[index] = -1 * scene_icp.normals[index]
-    
+    """
     for index in range(len(scene_icp.points)):
         if (scene_icp.points[index].dot(scene_icp.normals[index])) > 0:
             scene_icp.normals[index] = -1 * scene_icp.normals[index]
@@ -252,38 +252,6 @@ def main():
         poses, key=lambda x: x[2], reverse=True
     )
 
-    icp_results = []
-    for T_model2scene, m_r, score in poses_sort:
-        print("Score", score)
-        print(np.around(T_model2scene, decimals=2))
-        distance_threshold = 5
-        
-        # 使用G-ICP算法进行点云配准
-
-        evaluation = o3d.pipelines.registration.evaluate_registration(model_icp,
-                                                                      scene_icp,
-                                                                      distance_threshold,
-                                                                      T_model2scene
-                                                                      )
-        print(evaluation)
-        icp_criteria = o3d.pipelines.registration.ICPConvergenceCriteria(
-                                                                            relative_fitness=1e-4, relative_rmse=1e-2, max_iteration=100
-                                                                        )
-        g_icp = o3d.pipelines.registration.registration_icp(
-                                                            model_icp,
-                                                            scene_icp,
-                                                            distance_threshold,
-                                                            T_model2scene,
-                                                            o3d.pipelines.registration.TransformationEstimationPointToPlane(),
-                                                            criteria=icp_criteria
-                                                            )
-        
-        icp_results.append((g_icp.transformation, g_icp.fitness, g_icp.inlier_rmse))
-    icp_results_sort = sorted(
-                                icp_results, key=lambda x: x[2], reverse=False
-                            )
-
-
     # Visualize result
     colormap = label_colormap()
     vis_list = []
@@ -301,22 +269,7 @@ def main():
     vis_list.append(_scene_vis)
     o3d.visualization.draw_geometries(vis_list, width=1280, height=760, window_name="results of ppf")
 
-    # Visualize icp functions
-    colormap = label_colormap()
-    vis_list = []
-    scene_refs = o3d.geometry.PointCloud()
-    scene_refs.points = o3d.utility.Vector3dVector([scene.points[idx] for idx in list(pairs_scene.keys())])
-    scene_refs.paint_uniform_color([0, 0, 0])
-    vis_list.append(scene_refs)
-    index = 0
-    for T_model2scene, m_r, score in icp_results_sort:
-        index = index + 1
-        _model_vis_tmp = copy.deepcopy(model_icp)
-        _model_vis_tmp.transform(T_model2scene)
-        _model_vis_tmp.paint_uniform_color(colormap[index]/128)
-        vis_list.append(_model_vis_tmp)
-    vis_list.append(scene_icp)
-    o3d.visualization.draw_geometries(vis_list, width=1280, height=760, window_name="results of icp")
+    icp_matching(poses_sort, model_icp, scene_icp)
 
 
 def to_nanobind(arr):
@@ -643,6 +596,112 @@ def label_colormap(n_label=256, value=None):
             hsv[:, 1:, 2] = value
         cmap = hsv2rgb(hsv).reshape(-1, 3)
     return cmap
+
+
+def icp_matching(ppf_poses: list, model_icp: o3d.geometry.PointCloud, scene_icp: o3d.geometry.PointCloud, method="p2pl", vis=True, vis_num=1):
+    icp_results = []
+    if method == "p2pl":
+        p2pl_icp_results = []
+        for T_model2scene, m_r, score in ppf_poses:
+            distance_threshold = 10
+            
+            # 使用PointToPlane-ICP算法进行点云配准
+
+            evaluation = o3d.pipelines.registration.evaluate_registration(model_icp,
+                                                                          scene_icp,
+                                                                          distance_threshold,
+                                                                          T_model2scene
+                                                                         )
+            icp_criteria = o3d.pipelines.registration.ICPConvergenceCriteria(
+                                                                                relative_fitness=1e-4, relative_rmse=1e-4, max_iteration=100
+                                                                            )
+            p2pl_icp = o3d.pipelines.registration.registration_icp(
+                                                                    model_icp,
+                                                                    scene_icp,
+                                                                    distance_threshold,
+                                                                    T_model2scene,
+                                                                    o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+                                                                    criteria=icp_criteria
+                                                                    )
+            
+            p2pl_icp_results.append((p2pl_icp.transformation, p2pl_icp.fitness, p2pl_icp.inlier_rmse))
+        icp_results = p2pl_icp_results
+
+    if method == "p2p":
+        p2p_icp_results = []
+        for T_model2scene, m_r, score in ppf_poses:
+            distance_threshold = 10
+            
+            # 使用PointToPlane-ICP算法进行点云配准
+
+            evaluation = o3d.pipelines.registration.evaluate_registration(model_icp,
+                                                                          scene_icp,
+                                                                          distance_threshold,
+                                                                          T_model2scene
+                                                                          )
+            icp_criteria = o3d.pipelines.registration.ICPConvergenceCriteria(
+                                                                                relative_fitness=1e-4, relative_rmse=1e-4, max_iteration=100
+                                                                            )
+            p2p_icp = o3d.pipelines.registration.registration_icp(
+                                                                    model_icp,
+                                                                    scene_icp,
+                                                                    distance_threshold,
+                                                                    T_model2scene,
+                                                                    o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+                                                                    criteria=icp_criteria
+                                                                    )
+           
+            p2p_icp_results.append((p2p_icp.transformation, p2p_icp.fitness, p2p_icp.inlier_rmse))
+        icp_results = p2p_icp_results
+
+    if method == "g":
+        g_icp_results = []
+        for T_model2scene, m_r, score in ppf_poses:
+            distance_threshold = 10
+            
+            # 使用PointToPlane-ICP算法进行点云配准
+
+            evaluation = o3d.pipelines.registration.evaluate_registration(model_icp,
+                                                                          scene_icp,
+                                                                          distance_threshold,
+                                                                          T_model2scene
+                                                                          )
+            icp_criteria = o3d.pipelines.registration.ICPConvergenceCriteria(
+                                                                                relative_fitness=1e-4, relative_rmse=1e-4, max_iteration=100
+                                                                            )
+            g_icp = o3d.pipelines.registration.registration_generalized_icp(
+                                                            model_icp,
+                                                            scene_icp,
+                                                            distance_threshold,
+                                                            T_model2scene,
+                                                            o3d.pipelines.registration.TransformationEstimationForGeneralizedICP(),
+                                                            criteria=icp_criteria
+                                                            )
+        
+            g_icp_results.append((g_icp.transformation, g_icp.fitness, g_icp.inlier_rmse))
+        icp_results = g_icp_results
+
+    if vis:
+        icp_results_sort = sorted(
+                            icp_results, key=lambda x: x[2], reverse=False
+                        )
+        icp_final = icp_results_sort[:vis_num]
+        # Visualize icp functions
+        colormap = label_colormap()
+        vis_list = []
+        index = 0
+        for T_model2scene, m_r, score in icp_final:
+            print("icp final score", score)
+            print(np.around(T_model2scene, decimals=2))
+            index = index + 1
+            _model_vis_tmp = copy.deepcopy(model_icp)
+            _model_vis_tmp.transform(T_model2scene)
+            _model_vis_tmp.paint_uniform_color(colormap[index]/128)
+            vis_list.append(_model_vis_tmp)
+        vis_list.append(scene_icp)
+        o3d.visualization.draw_geometries(vis_list, width=1280, height=760, window_name="results of " + method + "-icp")
+
+    return icp_results
 
 
 if __name__ == "__main__":
