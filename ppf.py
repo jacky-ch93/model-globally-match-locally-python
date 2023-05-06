@@ -81,8 +81,7 @@ def main():
         print("Using slow python mode")
 
     # read source(model) and traget(scene) pointcloud
-    src_model = o3d.io.read_point_cloud(args.model)
-    if not src_model.points:
+    try:
         src_model = o3d.io.read_triangle_mesh(args.model)
         # src_model.remove_degenerate_triangles()
         # src_model.remove_duplicated_triangles()
@@ -90,39 +89,38 @@ def main():
         # src_model.remove_non_manifold_edges()
         # src_model.compute_triangle_normals(normalized=True)
         model_icp = src_model.sample_points_uniformly(number_of_points=100000)
-        # model = src_model.sample_points_poisson_disk(number_of_points=100)
-    else:
+    except RuntimeError:
+        src_model = o3d.io.read_point_cloud(args.model)
         model_icp = src_model.farthest_point_down_sample(num_samples=50000)
-        # model = src_model.voxel_down_sample(voxel_size=30)
-    src_scene = o3d.io.read_point_cloud(args.scene)
-    if not src_scene.points:
+
+    try:
         src_scene = o3d.io.read_triangle_mesh(args.scene)
-        src_scene.remove_degenerate_triangles()
-        src_scene.remove_duplicated_triangles()
-        src_scene.remove_duplicated_vertices()
-        src_scene.remove_non_manifold_edges()
+        # src_scene.remove_degenerate_triangles()
+        # src_scene.remove_duplicated_triangles()
+        # src_scene.remove_duplicated_vertices()
+        # src_scene.remove_non_manifold_edges()
         # src_scene.compute_triangle_normals(normalized=True)
         scene_icp = src_scene.sample_points_uniformly(number_of_points=100000)
-        # scene = src_scene.sample_points_poisson_disk(number_of_points=100)
-    else:
+    except RuntimeError:
+        src_scene = o3d.io.read_point_cloud(args.scene)
         scene_icp = src_scene.farthest_point_down_sample(num_samples=50000)
-        # scene = src_scene.voxel_down_sample(voxel_size=30)
 
     # process normals of pointclouds:
     # if model.normals:
     model_icp.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=20, max_nn=20))
     model_icp.normalize_normals()
-    model = model_icp.farthest_point_down_sample(num_samples=100)
+    model = model_icp.farthest_point_down_sample(num_samples=200)
     # if scene.normals:
     scene_icp.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=20, max_nn=20))
-
+    """
     for index in range(len(scene_icp.normals)):
         scene_icp.normals[index] = -1 * scene_icp.normals[index]
     """
-    for index in range(len(scene_icp.points)):
-        if (scene_icp.points[index].dot(scene_icp.normals[index])) > 0:
-            scene_icp.normals[index] = -1 * scene_icp.normals[index]
-    """
+    if "xinhua" in args.model:
+        for index in range(len(scene_icp.points)):
+            if (scene_icp.points[index].dot(scene_icp.normals[index])) > 0:
+                scene_icp.normals[index] = -1 * scene_icp.normals[index]
+
     scene_icp.normalize_normals()
     scene = scene_icp.farthest_point_down_sample(num_samples=100)
 
@@ -685,7 +683,11 @@ def icp_matching(ppf_poses: list, model_icp: o3d.geometry.PointCloud, scene_icp:
         icp_results_sort = sorted(
                             icp_results, key=lambda x: x[2], reverse=False
                         )
-        icp_final = icp_results_sort[:vis_num]
+        if vis_num > 0:
+            icp_final = icp_results_sort[:vis_num]
+        else:
+            icp_final = icp_results_sort
+
         # Visualize icp functions
         colormap = label_colormap()
         vis_list = []
