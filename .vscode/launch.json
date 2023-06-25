@@ -1,0 +1,25 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+
+        
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                //"./example_models/model_small.ply",
+                //"./example_models/scene_small.ply"
+                "./example_models/nantong-xinhua-2.stl",
+                //"./example_models/nantong-xinhua-2-move.stl"
+                "./example_models/t_remove_bkg.ply"
+            ]
+        }
+    ]
+}

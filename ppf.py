@@ -103,7 +103,8 @@ def main():
         scene_icp = src_scene.sample_points_uniformly(number_of_points=100000)
     except RuntimeError:
         src_scene = o3d.io.read_point_cloud(args.scene)
-        scene_icp = src_scene.farthest_point_down_sample(num_samples=50000)
+        scene_icp= src_scene.farthest_point_down_sample(num_samples=50000)
+        # down_indices = src_scene.get_indices_from_mask(indices)
 
     # process normals of pointclouds:
     # if model.normals:
