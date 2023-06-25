@@ -16,9 +16,12 @@
             "args": [
                 //"./example_models/model_small.ply",
                 //"./example_models/scene_small.ply"
-                "./example_models/nantong-xinhua-2.stl",
-                //"./example_models/nantong-xinhua-2-move.stl"
-                "./example_models/t_remove_bkg.ply"
+                //"./example_models/nantong-xinhua-2.stl",
+                //"./example_models/nantong-xinhua-2-move.stl",
+                "--model", "./example_models/nantong-xinhua-1.stl",
+                //"./example_models/t_remove_bkg.ply"
+                "--scene", "./example_models/t_two_remove_bkg.ply",
+                "--topN", "2"
             ]
         }
     ]

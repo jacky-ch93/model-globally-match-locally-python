@@ -32,8 +32,9 @@ def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("model", help="Path to the model pointcloud")
-    parser.add_argument("scene", help="Path to the scene pointcloud")
+    parser.add_argument("--model", help="Path to the model pointcloud")
+    parser.add_argument("--scene", help="Path to the scene pointcloud")
+    parser.add_argument("--topN", help="the number of results to be selected")
     parser.add_argument(
         "--fast", action="store_true", help="Use the c++ extension for speeeeeed"
     )
@@ -268,7 +269,7 @@ def main():
     vis_list.append(_scene_vis)
     o3d.visualization.draw_geometries(vis_list, width=1280, height=760, window_name="results of ppf")
 
-    icp_matching(poses_sort, model_icp, scene_icp)
+    icp_matching(poses_sort, model_icp, scene_icp, vis_num=int(args.topN))
 
 
 def to_nanobind(arr):
