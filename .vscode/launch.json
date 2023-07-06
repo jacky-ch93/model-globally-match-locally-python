@@ -14,13 +14,14 @@
             "console": "integratedTerminal",
             "justMyCode": true,
             "args": [
-                //"./example_models/model_small.ply",
-                //"./example_models/scene_small.ply"
+                //"--model", "./example_models/model_small.ply",
+                //"--scene","./example_models/scene_larger.ply",
                 //"./example_models/nantong-xinhua-2.stl",
                 //"./example_models/nantong-xinhua-2-move.stl",
                 "--model", "./example_models/nantong-xinhua-1.stl",
-                //"./example_models/t_remove_bkg.ply"
+                //"--scene", "./example_models/t_remove_bkg.ply",
                 "--scene", "./example_models/t_two_remove_bkg.ply",
+                //"--scene", "./example_models/nantong-xinhua-2-move.stl",
                 "--topN", "2"
             ]
         }
